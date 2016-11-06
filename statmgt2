@@ -1,0 +1,400 @@
+            result = ENVAdapter.getENVValue(valuename, conn);
+            if (result != null && result.getResultSet() != null)
+            {
+                res = result.getResultSet();
+                if (res.next())
+                {
+                    value = res.getString("VALUE");
+                }
+            }
+        } catch (SQLException e)
+        {
+            log.error("[SYSTEM] Error while getting value from ResultSet");
+            String msg = "Error while getting value from ResultSet";
+            addResultLog(false, msg);
+        } finally
+        {
+            if (result != null)
+            {
+                ENVAdapter.deinitEnv(result.getStatement(), null, result.getResultSet());
+            }
+        }
+        return value;
+    }
+
+    public int closeall(Connection conn, ResultSet set, PreparedStatement stmt)
+    {
+        if (set != null)
+        {
+            try
+            {
+                set.close();
+            } catch (SQLException e)
+            {
+                log.error("[SYSTEM] Error while closing ResultSet");
+            }
+        }
+        if (stmt != null)
+        {
+            try
+            {
+                stmt.close();
+            } catch (SQLException e)
+            {
+                log.error("[SYSTEM] Error while closing Statement");
+            }
+        }
+        if (conn != null)
+        {
+            try
+            {
+                conn.close();
+            } catch (SQLException e)
+            {
+                log.error("[SYSTEM] Error while closing connection");
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * connect the database锟斤拷 and get statistics data from table
+     * AM_INVOKE_STATISTICS in giving date
+     * 
+     * @param giving
+     *            date (yyyy-mm-dd)
+     * @return date info
+     */
+    public ArrayList<StatInfo> getDatasetFromDatabase(String time)
+    {
+
+        ArrayList<StatInfo> statList = new ArrayList<StatInfo>();
+        Connection conn = null;
+        PreparedStatement stmt = null;
+        ResultSet set = null;
+        try
+        {
+            conn = ENVAdapter.initEnv(sqlurl, sql_username, sql_paswd);
+            if (null == conn)
+            {
+                return null;
+            }
+            stmt = conn.prepareStatement(GET_ALL_CFG_SQL);
+
+            /* 锟斤拷锟斤拷锟斤拷锟斤拷锟絪ql锟斤拷洳⒅达拷锟絪ql锟斤拷锟� */
+            stmt.setString(1, "%" + time + "%");
+            set = stmt.executeQuery();
+            conn.commit();
+            while (set.next())
+            {
+                statList.add(new StatInfo(set.getDate("TIME_CREATED"), set.getString("CONSUMER_KEY"),
+                        set.getString("APP_NAME"), set.getString("HTTP_METHOD"), set.getString("CONTEXT"),
+                        set.getString("API_NAME"), set.getString("API_VERSION"), set.getInt("INVOKE_COUNT"),
+                        set.getInt("SUCCESS_COUNT"), set.getInt("FAIL_COUNT"), set.getInt("MAX_DELAY"),
+                        set.getInt("MIN_DELAY"), set.getInt("AVERAGE_DELAY")));
+            }
+        } catch (SQLException e)
+        {
+            log.error("[SYSTEM] Error while getting statistics info for invoke");
+            String msg = "Error while getting statistics info for invoke";
+            addResultLog(false, msg);
+        } finally
+        {
+            closeall(conn, set, stmt);
+        }
+        return statList;
+    }
+
+    /**
+     * 统锟斤拷锟斤拷莼锟斤拷锟�
+     * 
+     * @return
+     */
+    public ArrayList<StatInfo> getStatInfo(String time)
+    {
+
+        ArrayList<StatInfo> statList = getDatasetFromDatabase(time);
+        if (null == statList)
+        {
+            return null;
+        }
+        ListIterator<StatInfo> iter = statList.listIterator(0);
+        ArrayList<StatInfo> removestatList = new ArrayList<StatInfo>();
+
+        while (iter.hasNext())
+        {
+            StatInfo tempStat = iter.next();
+            if (removestatList.contains(tempStat))
+            {
+                continue;
+            }
+
+            int netindex = iter.nextIndex();
+            ListIterator<StatInfo> iter2 = statList.listIterator(netindex);
+            while (iter2.hasNext())
+            {
+                StatInfo tempStat2 = iter2.next();
+                if (tempStat.appKey.equalsIgnoreCase(tempStat2.appKey)
+                        && tempStat.method.equalsIgnoreCase(tempStat2.method)
+                        && tempStat.context.equalsIgnoreCase(tempStat2.context))
+                {
+                    if (tempStat2.successCount != 0)
+                    {
+                        tempStat.invokeCount += tempStat2.invokeCount;
+                        tempStat.successCount += tempStat2.successCount;
+                        tempStat.failCount += tempStat2.failCount;
+                        if (tempStat.maxDelay < tempStat2.maxDelay)
+                        {
+                            tempStat.maxDelay = tempStat2.maxDelay;
+                        }
+                        if (((tempStat.minDelay > tempStat2.minDelay) || (0 == tempStat.minDelay))
+                                && tempStat2.minDelay != 0)
+                        {
+                            tempStat.minDelay = tempStat2.minDelay;
+                        }
+                        tempStat.sumDelay += tempStat2.sumDelay;
+                        tempStat.statnum += tempStat2.successCount;
+                    } else
+                    {
+                        tempStat.invokeCount += tempStat2.invokeCount;
+                        tempStat.failCount += tempStat2.failCount;
+                    }
+                    removestatList.add(tempStat2);
+                }
+            }
+        }
+        statList.removeAll(removestatList);
+        return statList;
+    }
+
+    /**
+     * connect database and get the last successful upload date
+     * 
+     * @param none
+     * @return last last successful upload date (yyyy-mm-dd)
+     */
+    public ArrayList<String> getLastSuccessDate()
+    {
+        Connection conn = null;
+        PreparedStatement stmt = null;
+        ResultSet set = null;
+
+        ArrayList<String> date = new ArrayList<String>();
+        try
+        {
+
+            conn = ENVAdapter.initEnv(sqlurl, sql_username, sql_paswd);
+            if (null == conn)
+            {
+                return null;
+            }
+            stmt = conn.prepareStatement(GET_LAST_DATE);
+            stmt.setInt(1, actualtime);
+            set = stmt.executeQuery();
+            conn.commit();
+            while (set.next())
+            {
+                date.add(set.getString("UPLOAD_TIME"));
+            }
+            set.close();
+            stmt.close();
+            stmt = conn.prepareStatement(DELETE_DATE);
+            stmt.setInt(1, userfultime);
+            stmt.executeUpdate();
+            conn.commit();
+        } catch (SQLException e)
+        {
+            log.error("[SYSTEM] Error while getting statistics info for upload");
+            String msg = "Error while getting statistics info for upload";
+            addResultLog(false, msg);
+        } finally
+        {
+            closeall(conn, set, stmt);
+        }
+        return date;
+    }
+
+    public void genCsvFileByDay(Date time)
+    {
+        ArrayList<StatInfo> statList = null;
+        SimpleDateFormat df1 = new SimpleDateFormat("yyyy-MM-dd");
+        SimpleDateFormat df2 = new SimpleDateFormat("yyyyMMdd");
+        FileOutputStream fos = null;
+        OutputStreamWriter fw = null;
+        try
+        {
+
+            statList = getStatInfo(df1.format(time));
+            String CsvFileName = df2.format(time) + "_APICallByAppReportByDay";
+            String tmpCsvFileName = CsvFileName + ".tmp";
+            String newCsvFileName = CsvFileName + ".csv";
+
+            File file = new File(csvFilePath + tmpCsvFileName);
+            fos = new FileOutputStream(file);
+            fw = new OutputStreamWriter(fos, System.getProperty("file.encoding"));
+            if (null == statList)
+            {
+                return;
+            }
+            Iterator<StatInfo> iter = statList.iterator();
+            while (iter.hasNext())
+            {
+                StatInfo tempStat = iter.next();
+
+                fw.append(tempStat.getString());
+
+            }
+            fw.close();
+
+            File oldfile = new File(csvFilePath + tmpCsvFileName);
+            File newfile = new File(csvFilePath + newCsvFileName);
+
+            if (newfile.exists())
+            {
+                if (!newfile.delete())
+                {
+                    throw new IOException();
+                }
+            }
+            if (!oldfile.renameTo(newfile))
+            {
+                throw new IOException();
+            }
+            InterCommon.runShell("./tar_csv.sh " + csvFilePath + " " + CsvFileName);
+        } catch (IOException e)
+        {
+            log.error("[SYSTEM] Error while writing statistics info to file");
+            String msg = "Error while writing statistics info to file";
+            addResultLog(false, msg);
+        } finally
+        {
+            try
+            {
+                if (fw != null)
+                {
+                    fw.close();
+                }
+            } catch (IOException e)
+            {
+                log.error("[SYSTEM] Error while closing statistics file");
+            }
+            try
+            {
+                if (fos != null)
+                {
+                    fos.close();
+                }
+            } catch (IOException e)
+            {
+                log.error("[SYSTEM] Error while closing statistics file");
+            }
+        }
+
+    }
+
+    /**
+     * 锟斤拷锟絚sv锟侥硷拷
+     * 
+     * @throws ParseException
+     */
+    public void exportCsvFile()
+    {
+        ArrayList<String> lastDate = getLastSuccessDate();
+        SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd");
+        Calendar cal = Calendar.getInstance();
+        for (int i = 0; i < actualtime; i++)
+        {
+
+            cal.add(Calendar.DATE, -1);
+            Date time = cal.getTime();
+            if (null == lastDate)
+            {
+                return;
+            }
+            if (!lastDate.contains(df.format(time)))
+            {
+                genCsvFileByDay(time);
+            }
+        }
+    }
+
+    public void insertUploadRecord(String time)
+    {
+        Connection conn = null;
+        PreparedStatement stmt = null;
+        try
+        {
+            conn = ENVAdapter.initEnv(sqlurl, sql_username, sql_paswd);
+            if (null == conn)
+            {
+                return;
+            }
+            stmt = conn.prepareStatement(INSERT_RECORD);
+            stmt.setString(1, time);
+
+            stmt.executeUpdate();
+            conn.commit();
+            addResultLog(true, "");
+        } catch (SQLException e)
+        {
+            log.error("[SYSTEM] Error while insert statistics info for upload");
+            String msg = "Error while insert statistics info for upload";
+            addResultLog(false, msg);
+        } finally
+        {
+            closeall(conn, null, stmt);
+        }
+    }
+
+    /**
+     * 锟较达拷csv锟侥硷拷
+     * 
+     * @param none
+     * @return none
+     */
+    public void uploadCsvFile()
+    {
+        List<String> result = null;
+
+        ArrayList<String> lastDate = getLastSuccessDate();
+
+        Calendar cal = Calendar.getInstance();
+        SimpleDateFormat df1 = new SimpleDateFormat("yyyy-MM-dd");
+        SimpleDateFormat df2 = new SimpleDateFormat("yyyyMMdd");
+        for (int i = 0; i < actualtime; i++)
+        {
+
+            cal.add(Calendar.DATE, -1);
+            Date time = cal.getTime();
+            if (null == lastDate)
+            {
+                return;
+            }
+            if (!lastDate.contains(df1.format(time)))
+            {
+                if (localflag)
+                {
+                    insertUploadRecord(df1.format(time));
+                } else
+                {
+                    String csvFileName = df2.format(time) + "_APICallByAppReportByDay.tar.gz";
+                    result = InterCommon.runShell(shell_cmd + csvFileName);
+                    if ("0".equalsIgnoreCase(result.get(0)))
+                    {
+                        log.info("[SYSTEM] Upload package file success");
+                        insertUploadRecord(df1.format(time));
+                    } else
+                    {
+                        String msg = "Error while upload cvs file,execute shell script failed";
+                        addResultLog(false, msg);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * 删锟斤拷锟斤拷锟绞憋拷锟斤拷锟斤拷30锟斤拷锟絚sv锟侥硷拷
+     * 
+     * @param non
+     * @return non
