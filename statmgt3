@@ -1,0 +1,167 @@
+     * @throws IOException
+     */
+    public void deleteCsvFile() throws IOException
+    {
+        File[] csvFileArr = file.listFiles();
+        if (csvFileArr != null)
+        {
+            for (int i = 0; i < csvFileArr.length; i++)
+            {
+                String fileName = csvFileArr[i].getName();
+
+                /* 锟斤拷应file锟斤拷锟侥硷拷锟叫ｏ拷锟斤拷锟斤拷锟侥硷拷锟斤拷转锟斤拷锟斤拷一锟斤拷file */
+                if (!csvFileArr[i].isFile())
+                {
+                    continue;
+                }
+                /* 锟侥硷拷锟斤拷锟斤拷csv锟侥硷拷锟斤拷转锟斤拷锟斤拷一锟斤拷file */
+                if (!isValidCsvFileName(fileName))
+                {
+                    continue;
+                }
+                /* 锟斤拷锟斤拷时锟斤拷小锟斤拷30锟斤拷转锟斤拷锟斤拷一锟斤拷file */
+                if (getExistDays(fileName) <= userfultime)
+                {
+                    continue;
+                }
+                /* 删锟斤拷锟斤拷锟绞憋拷锟斤拷锟斤拷30锟斤拷锟絚sv锟侥硷拷 */
+                if (!csvFileArr[i].delete())
+                {
+                    throw new IOException();
+                }
+            }
+        }
+    }
+
+    /**
+     * 锟叫讹拷锟斤拷锟斤拷锟斤拷募锟斤拷锟斤拷缀锟斤拷锟角凤拷为csv
+     * 
+     * @param csv锟侥硷拷锟斤拷
+     * @return 锟斤拷确锟斤拷锟斤拷锟斤拷true锟斤拷锟斤拷锟襟，凤拷锟斤拷false
+     */
+    private static boolean isValidCsvFileName(String name)
+    {
+
+        String[] suffixStr = name.split("\\.");
+        int num = suffixStr.length;
+
+        if (suffixStr[num - 1].equals("gz") && suffixStr[num - 2].equals("tar"))
+        {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * 锟斤拷锟斤拷锟斤拷锟絚sv锟侥硷拷锟斤拷锟侥硷拷锟斤拷锟斤拷锟斤拷募锟斤拷锟斤拷锟绞憋拷锟�
+     * 
+     * @param csv锟侥硷拷锟斤拷
+     * @return 锟侥硷拷锟斤拷锟节碉拷锟斤拷锟斤拷
+     */
+    private static long getExistDays(String fileName)
+    {
+        long existDays = 0;
+        try
+        {
+            /* 去锟斤拷锟侥硷拷锟斤拷头锟斤拷时锟斤拷锟斤拷锟阶拷锟轿狣ate锟斤拷锟斤拷锟斤拷锟绞憋拷锟斤拷 */
+            String dateInfo = fileName.substring(0, 8);
+            SimpleDateFormat df = new SimpleDateFormat("yyyyMMdd");
+            Date oldDate = null;
+
+            oldDate = df.parse(dateInfo);
+
+            Date curDate = new Date();
+            long diffTime = curDate.getTime() - oldDate.getTime();
+
+            /* 锟斤拷锟斤拷时锟斤拷睿拷玫锟斤拷募锟斤拷锟斤拷诘锟斤拷锟斤拷锟� */
+            existDays = diffTime / MISEC_TO_DAY;
+        } catch (ParseException e)
+        {
+            log.error("[SYSTEM] Error while parsing Date format");
+        }
+
+        return existDays;
+    }
+
+    public static void main(String[] args)
+            throws IOException, ParseException, CroptoException, CipherToolException, NullPointerException
+    {
+        PropertyConfigurator.configure(InterCommon.getLogConfigFile());
+        if (args.length == 1 && args[0] != null)
+        {
+            if ("smartcare".equals(args[0]))
+            {
+                productid = 1;
+            }
+        }
+        StatMgt statmgt = new StatMgt();
+        statmgt.init();
+        statmgt.exportCsvFile();
+        statmgt.uploadCsvFile();
+        statmgt.deleteCsvFile();
+    }
+
+    static class StatInfo
+    {
+        private Date createTime;
+        private String appKey;
+        private String appName;
+        private String method;
+        private String context;
+        private String apiname;
+        private String apiversion;
+
+        public long invokeCount;
+        public long successCount;
+        public long failCount;
+        public long maxDelay;
+        public long minDelay;
+        public long averDelay;
+        public long sumDelay;
+        public long statnum;
+
+        public StatInfo(Date createTime, String appKey, String appName, String method, String context, String apiname,
+                String apiversion, long invokeCount, long successCount, long failCount, long maxDelay, long minDelay,
+                long averDelay) {
+            this.createTime = createTime;
+            this.appKey = appKey;
+            this.appName = appName;
+            this.method = method;
+            this.context = context;
+            this.apiname = apiname;
+            this.apiversion = apiversion;
+            this.invokeCount = invokeCount;
+            this.successCount = successCount;
+            this.failCount = failCount;
+            if (successCount != 0)
+            {
+                this.maxDelay = maxDelay;
+                this.minDelay = minDelay;
+                this.averDelay = averDelay;
+                this.statnum = successCount;
+            } else
+            {
+                this.statnum = 1;
+            }
+
+            this.sumDelay = successCount * this.averDelay;
+        }
+
+        public String getString()
+        {
+            String result = "";
+            if (productid == 1)
+            {
+                result += createTime + "," + appName + "," + method + " " + context + "," + invokeCount + ","
+                        + successCount + "," + failCount + "," + maxDelay + "," + minDelay + "," + sumDelay / statnum
+                        + "," + apiname + "," + apiversion + "\r\n";
+            } else
+            {
+                result += createTime + "," + appName + "," + method + " " + context + "," + invokeCount + ","
+                        + successCount + "," + failCount + "," + maxDelay + "," + minDelay + "," + sumDelay / statnum
+                        + "\r\n";
+            }
+            return result;
+        }
+    }
+}
