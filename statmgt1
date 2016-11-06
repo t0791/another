@@ -1,0 +1,200 @@
+package com.huawei.am.igt.statmgt;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.text.Normalizer;
+import java.text.Normalizer.Form;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.Iterator;
+import java.util.List;
+import java.util.ListIterator;
+
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.apache.log4j.PropertyConfigurator;
+
+import com.huawei.am.igt.cfgmgt.CfgManager;
+import com.huawei.am.igt.common.DbConfig;
+import com.huawei.am.igt.common.InterCommon;
+import com.huawei.am.igt.env.ENVAdapter;
+import com.huawei.am.igt.env.ENVResult;
+import com.huawei.am.mgr.ciphertool.CipherToolException;
+import com.huawei.am.mgr.ciphertool.SecretMgr;
+import com.huawei.am.mgr.crypto.CroptoException;
+import com.huawei.am.mgr.crypto.Crypto;
+
+/**
+ * @author w00241627 last modified by qwx330766
+ */
+public class StatMgt
+{
+    private static Log log = LogFactory.getLog(StatMgt.class);
+
+    final private static String GET_ALL_CFG_SQL = "SELECT * FROM AM_INVOKE_STATISTICS WHERE TIME_CREATED like ?;";
+    final private static String GET_LAST_DATE = "SELECT * FROM AM_STATISTICS_UPLOAD_INFO WHERE UPLOAD_TIME > sysdate-1-?;";
+    final private static String GET_MIN_DATE = "SELECT MIN(UPLOAD_TIME) FROM AM_STATISTICS_UPLOAD_INFO;";
+    final private static String DELETE_DATE = "DELETE FROM AM_STATISTICS_UPLOAD_INFO WHERE UPLOAD_TIME < sysdate-1-?;";
+    final private static String INSERT_RECORD = "INSERT INTO AM_STATISTICS_UPLOAD_INFO (UPLOAD_TIME) VALUES (?);";
+
+    final private static int MISEC_TO_DAY = 1000 * 24 * 60 * 60;
+    private String xmlurl = "/apimgt/repository/conf/datasources/master-datasources.xml";
+    private String shell_cmd = "./transfer_file.sh";
+    private String sqlurl = "";
+    private String sql_username = "";
+    private String sql_paswd = "";
+    private String csvFilePath = "";
+    private Boolean localflag = true;
+    private File file = null;
+    private String mindateString = null;
+    private int userfultime = 0;
+    private int actualtime = 0;
+    static private int productid = 0;
+
+    /**
+     * writing result log,and it is started with "[statistics]", record whether
+     * the operation of uploading statistics
+     * 
+     * @param isSuccess
+     *            true for success,false for failed
+     * @param msg
+     *            message info:if failed the message is failed info,otherwise is
+     *            empty
+     */
+    private void addResultLog(boolean isSuccess, String msg)
+    {
+        if (isSuccess)
+        {
+            log.info("[statistics] Upload statistics success!");
+        } else
+        {
+            log.error("[statistics] Upload statistics failed! " + msg);
+        }
+    }
+
+    /**
+     * @param configPath
+     * @throws IOException
+     * @throws ParseException
+     * @throws CroptoException
+     * @throws CipherToolException
+     */
+    public void init() throws IOException, ParseException, CroptoException, CipherToolException, NullPointerException
+    {
+        /* 锟斤拷锟斤拷菘锟斤拷谢锟饺★拷锟斤拷貌锟斤拷锟� */
+        PreparedStatement stmt = null;
+        String statpolicy = "";
+        String serverpwd = null;
+        ResultSet set = null;
+        Connection conn = null;
+        try
+        {
+            SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd");
+            DbConfig config = InterCommon.getDbConfig(CfgManager.getRootPath() + xmlurl, "WSO2AM_DB");
+            if (config == null)
+            {
+                throw new NullPointerException("Error when getting db config");
+            }
+            sqlurl = config.getUrl();
+            sql_username = config.getUsername();
+            sql_paswd = String
+                    .valueOf(SecretMgr.getInstance().getSecret("Datasource.WSO2AM_DB.configuration.password"));
+            conn = ENVAdapter.initEnv(sqlurl, sql_username, sql_paswd);
+            if (conn == null)
+            {
+                return;
+            }
+            stmt = conn.prepareStatement(GET_MIN_DATE);
+            set = stmt.executeQuery();
+            conn.commit();
+            if (set.next())
+            {
+                mindateString = set.getString("MIN");
+            }
+            ENVAdapter.deinitEnv(stmt, null, set);
+
+            csvFilePath = getStringValue("stat.backup.local.path", conn);
+            if (csvFilePath == null)
+            {
+                csvFilePath = "/backup/topus/statistics";
+            }
+            csvFilePath = Normalizer.normalize(csvFilePath, Form.NFKC);
+
+            statpolicy = getStringValue("stat.backup.policy", conn);
+            if ("remote".equals(statpolicy))
+            {
+                localflag = false;
+            }
+
+            String tempuserfultime = getStringValue("stat.backup.retention.cycle", conn);
+            if (tempuserfultime != null)
+            {
+                userfultime = Integer.valueOf(tempuserfultime);
+            } else
+            {
+                userfultime = 30;
+            }
+            actualtime = userfultime;
+            Date mindate = df.parse(mindateString);
+            Date tody = new Date();
+            long quot = tody.getTime() - mindate.getTime();
+            quot = quot / 1000 / 60 / 60 / 24 - 1;
+            if (actualtime > quot)
+            {
+                actualtime = (int) quot;
+            }
+
+            String serverip = getStringValue("stat.backup.server.ip", conn);
+            String serverpath = getStringValue("stat.backup.server.path", conn);
+            String serveruser = getStringValue("stat.backup.server.user", conn);
+            String temppwd = getStringValue("stat.backup.server.password", conn);
+            if (temppwd != null)
+            {
+                serverpwd = String.valueOf(Crypto.getInstance().decrypt(temppwd.toCharArray()));
+            }
+            ENVAdapter.deinitEnv(null, conn, null);
+
+            shell_cmd = shell_cmd + " put -s " + serverip + " -U " + serveruser + " -P " + serverpwd + " -l "
+                    + csvFilePath + " -r " + serverpath + " -f ";
+
+            file = new File(csvFilePath);
+            csvFilePath = file.getCanonicalPath();
+            if (!csvFilePath.endsWith("/"))
+            {
+                csvFilePath = csvFilePath + "/";
+            }
+            /* 锟斤拷锟斤拷募锟斤拷胁锟斤拷锟斤拷锟斤拷虼唇锟� */
+            if (!file.exists() || !file.isDirectory())
+            {
+                if (!file.mkdirs())
+                {
+                    throw new IOException();
+                }
+            }
+        } catch (SQLException e)
+        {
+            log.error("[SYSTEM] Error while getting statistics configuration");
+            String msg = "Error while getting statistics configuration";
+            addResultLog(false, msg);
+        } finally
+        {
+            closeall(conn, set, stmt);
+        }
+    }
+
+    public String getStringValue(String valuename, Connection conn)
+    {
+        ENVResult result = null;
+        ResultSet res = null;
+        String value = null;
+        try
+        {
