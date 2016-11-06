@@ -1,0 +1,79 @@
+#!/bin/bash
+RESULT_SUCCESS=0
+RESULT_FAILURE=1
+ROOTPATH=$(cd "$(dirname "$0")"; pwd)
+BACKUP_TASK_PATH=$ROOTPATH/../statmgt_cron.sh
+BACKUP_TASK_TIMEPOINT=00:01
+cd $ROOTPATH
+source $ROOTPATH/../../configure/config.ini
+USERNAME=`whoami`
+DATE=$(date +%Y%m%d)
+LOG_FILE=$install_dir/log/statmgt/$DATE/start.log
+LOG_PATH=$install_dir/log/statmgt/$DATE
+
+$ROOTPATH/../../user_permission.sh
+if [ $? -ne 0 ]; then
+    exit 1
+fi
+
+if [ ! -d "$LOG_PATH" ];then
+    mkdir -p $LOG_PATH
+fi
+
+
+pre_pid=`ps aux | grep statmgt_cron.sh |grep -v grep| awk -F ' ' '{print $2}'`
+if [ "$pre_pid" != "" ]; then
+	sh $ROOTPATH/stop.sh
+	pre_pid_check=`ps aux | grep statmgt_cron.sh | grep -v grep | awk -F ' ' '{print $2}'`
+	if [ "$pre_pid_check" != "" ]; then
+		echo "[`date +%Y-%m-%d' '%T`] [`whoami`] [SYSTEM] [statmgt] [ERROR] cannot stop this timer task,may be not the current user startup" >> $LOG_FILE 2>&1
+		exit $RESULT_FAILURE
+	fi	
+fi
+
+nohup $install_dir/plugins/jdk/jre/bin/java -jar $ROOTPATH/../com.huawei.am.igt.crontabmgt-1.0.0.jar $BACKUP_TASK_PATH $BACKUP_TASK_TIMEPOINT & 2>>/dev/null
+
+sleep 1
+pid=`ps aux | grep statmgt_cron.sh |grep -v grep| awk -F ' ' '{print $2}'`
+
+if [ "$pid" = "" ]; then
+	echo "[`date +%Y-%m-%d' '%T`] [`whoami`] [SYSTEM] [statmgt] [ERROR] start backup failed " >> $LOG_FILE 2>&1
+	exit $RESULT_FAILURE
+fi
+        	
+echo "[`date +%Y-%m-%d' '%T`] [`whoami`] [SYSTEM] [statmgt] [INFO] start backup success " >> $LOG_FILE 2>&1
+exit $RESULT_SUCCESS
+
+
+
+=====================================================
+
+#!/bin/bash
+RESULT_SUCCESS=0
+RESULT_FAILURE=1
+ROOTPATH=$(cd "$(dirname "$0")"; pwd)
+source $ROOTPATH/../configure/config.ini
+cd $ROOTPATH
+USERNAME=`whoami`
+DATE=$(date +%Y%m%d)
+LOG_PATH=$install_dir/log/statmgt/$DATE
+LOG_FILE=$install_dir/log/statmgt/$DATE/crontab.log
+
+$ROOTPATH/../user_permission.sh
+if [ $? -ne 0 ]; then
+    exit 1
+fi
+
+if [ ! -d "$LOG_PATH" ];then
+    mkdir -p $LOG_PATH
+	touch $LOG_FILE
+fi
+
+value=`$install_dir/plugins/jdk/jre/bin/java -jar com.huawei.am.igt.statmgt-1.0.0.jar &> /dev/null`
+if [ $? -eq $RESULT_SUCCESS ];then
+    echo -e [`date +%Y-%m-%d' '%T`] " [$USERNAME] [SYSTEM] [statmgt] [INFO] start statmgt timer task success"   >> $LOG_FILE 2>&1
+    exit $RESULT_SUCCESS
+else
+    echo -e [`date +%Y-%m-%d' '%T`] " [$USERNAME] [SYSTEM] [statmgt] [ERROR] start statmgt timer task failed"   >> $LOG_FILE 2>&1
+    exit $RESULT_FAILURE
+fi
