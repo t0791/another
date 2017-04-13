@@ -14,3 +14,4 @@ EXAMPLE	2010/7/21	MO GEXI	G87654321	CHINESE	23456789012	TOURISM	/	CHINAS CO.,LTD
 
 
 https://ceac.state.gov/GenNIV/Default.aspx
+http://www.ustraveldocs.com/cn_zh/cn-niv-visaapply.asp
